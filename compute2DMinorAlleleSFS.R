@@ -1,20 +1,13 @@
-# compute1DMinorAlleleFoldedSFS.R
+# compute2DMinorAlleleSFS.R
 # Norris Khoo 11/9/2018
-# This script calculates the minor allele folded SFS for 1 population given
-# --genotype: VCF file (matrix of genotypes consisting of individuals vs variant sites)
-# --target: BED file of target sites (region to consider when counting number of alternate alleles per SNP)
-# --name: File containing names of sample individuals
-# --output: Output filename 
-# The frequency of minor alleles provides insight into the demographic history of a population.
-# The minor allele folded SFS can be input into programs such as fastsimcoal and dadi to generate a
-# demographic model explaining a population's history
 
 suppressPackageStartupMessages(library(optparse))
 
 options <- list(
   make_option(c("--genotype"), type = "character", default = '', help = "VCF file"),
   make_option(c("--target"), type = "character", default = '', help = "BED file of target sites"),
-  make_option(c("--name"), type = "character", default = '', help = "File containing names of sample individuals"),
+  make_option(c("--name1"), type = "character", default = '', help = "File containing names of sample individuals for species 1"),
+  make_option(c("--name2"), type = "character", default = '', help = "File containing names of sample individuals for species 2"),
   make_option(c("--output"), type = "character", default = '', help = "Output file"))
 argument <- parse_args(OptionParser(option_list = options))
 
@@ -45,7 +38,7 @@ filterCallable <- function(genotype){
 determineMinorAllele <- function(genotype){
   numberVariant = length(genotype[,1])
   numberIndividual = length(genotype[1,])
-
+  
   numberAllele = 2 * numberIndividual
   minorAllele = rep(0, numberVariant)
   
@@ -78,7 +71,7 @@ determineMinorAllele <- function(genotype){
 computeSFS <- function(genotype, minorAllele){
   numberVariant = length(genotype[,1])
   numberIndividual = length(genotype[1,])
-
+  
   countVariant = rep(0, numberVariant)
   
   for (i in seq(1, numberVariant)){
@@ -108,47 +101,61 @@ computeSFS <- function(genotype, minorAllele){
   return(countVariant)
 }
 
-genotypeFilename = argument$genotype
+genotypeFilename = 'AW_selectVariant_chr38.vcf' # argument$genotype
 genotypeInput = readGT(genotypeFilename)
 
 variantRegex = as.numeric(gsub(pattern = "chr\\d+:(\\d+)_.*", replacement = "\\1", rownames(genotypeInput))) - 1
 variantIRange = IRanges(start = variantRegex, end = variantRegex)
 
-targetFilename = argument$target
+targetFilename = 'AW_callableNeutral_chr38.bed' # argument$target
 targetInput = read.table(targetFilename, sep = '\t')
 targetIRange = IRanges(start = targetInput[,2], end = targetInput[,3] - 1)
+targetTotal = sum(targetIRange@width)
 
-individualFilename = argument$name
-individualInput = as.vector(read.table(individualFilename, sep = '\t')$V1)
+species1Filename = 'AW_name1.txt' # argument$name1
+species1Input = as.vector(read.table(species1Filename, sep = '\t')$V1)
+
+species2Filename = 'AW_name2.txt' # argument$name2
+species2Input = as.vector(read.table(species2Filename, sep = '\t')$V1)
 
 usableVariant = intersect(variantIRange, targetIRange)
 disjointUsableVariant = unlist(tile(usableVariant, width = 1))
 filterInIndex = variantRegex %in% disjointUsableVariant@start
-genotypeFilter = genotypeInput[filterInIndex, individualInput]
+genotypeFilter = genotypeInput[filterInIndex,]
 
 genotypeCallable = filterCallable(genotypeFilter)
 minorAllele = determineMinorAllele(genotypeCallable)
 
-countVector = computeSFS(genotypeCallable, minorAllele)
-numberIndividual = length(genotypeCallable[1,])
+genotypeSpecies1 = genotypeCallable[, species1Input]
+genotypeSpecies2 = genotypeCallable[, species2Input]
 
-countVector = countVector[which(countVector != 0)]
-countVector = countVector[which(countVector != 2 * numberIndividual)]
+countVectorSpecies1 = computeSFS(genotypeSpecies1, minorAllele)
+numberIndividualSpecies1 = length(genotypeSpecies1[1,])
 
-countSFS = count(countVector)$freq
+countVectorSpecies2 = computeSFS(genotypeSpecies2, minorAllele)
+numberIndividualSpecies2 = length(genotypeSpecies2[1,])
 
-if(numberIndividual %% 2 == 1){
-  foldedSFS = rep(0, length(countSFS) / 2)
-  for(i in seq(1, length(foldedSFS))){
-    foldedSFS[i] = countSFS[i] + countSFS[length(countSFS) + 1 - i]
-  }
-} else{
-  foldedSFS = rep(0, (length(countSFS) - 1) / 2)
-  for(i in seq(1, length(foldedSFS))){
-    foldedSFS[i] = countSFS[i] + countSFS[length(countSFS) + 1 - i]
-  }
-  foldedSFS[length(foldedSFS) + 1] = countSFS[length(foldedSFS) + 1]
+jointCountSFS = matrix(0, ncol = 2 * numberIndividualSpecies1 + 1, nrow = 2 * numberIndividualSpecies2 + 1)
+for(i in seq(1, length(countVectorSpecies1))){
+  column = countVectorSpecies1[i] + 1
+  row = countVectorSpecies2[i] + 1
+  jointCountSFS[row, column] = jointCountSFS[row, column] + 1
+}
+variantTotal = sum(jointCountSFS) - jointCountSFS[1, 1]
+jointCountSFS[1, 1] = targetTotal - variantTotal
+
+columnSpecies1 = rep('', 2 * numberIndividualSpecies1 - 1)
+for(i in seq(0, 2 * numberIndividualSpecies1)){
+  columnSpecies1[i + 1] = paste('d1_', toString(i), sep = '')
 }
 
-outputFilename = argument$output
-write.table(foldedSFS, file = outputFilename, quote = FALSE, row.names = FALSE, col.names = FALSE, sep = '\t')
+rowSpecies2 = rep('', 2 * numberIndividualSpecies2 - 1)
+for(i in seq(0, 2 * numberIndividualSpecies2)){
+  rowSpecies2[i + 1] = paste('d0_', toString(i), sep = '')
+}
+
+colnames(jointCountSFS) = columnSpecies1
+rownames(jointCountSFS) = rowSpecies2
+
+outputFilename = 'jointCountSFS.txt' # argument$output
+write.table(jointCountSFS, file = outputFilename, quote = FALSE, row.names = TRUE, col.names = TRUE, sep = '\t')

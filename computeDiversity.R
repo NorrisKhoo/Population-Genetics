@@ -2,7 +2,7 @@
 # Norris Khoo 11/3/2018
 # This script calculates per window pi per site values given
 # --genotype: VCF file (matrix of genotypes consisting of individuals vs variant sites)
-# --target: BED file of target sites (region to conside when calculating per window pi per site values)
+# --target: BED file of target sites (region to consider when calculating per window pi per site values)
 # --name: File containing names of sample individuals
 # --chromosome: Size of entire chromosome in bp (integer)
 # --window: Size of each window in bp (integer)
@@ -131,7 +131,7 @@ targetInput = read.table(targetFilename, sep = '\t')
 targetIRange = IRanges(start = targetInput[,2], end = targetInput[,3] - 1)
 
 individualFilename = argument$name
-individualInput = read.table(individualFilename, sep = '\t')$V1
+individualInput = as.vector(read.table(individualFilename, sep = '\t')$V1)
 
 usableVariant = intersect(variantIRange, targetIRange)
 disjointUsableVariant = unlist(tile(usableVariant, width = 1))
